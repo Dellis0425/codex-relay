@@ -82,9 +82,23 @@ to open Codex Relay.
 
 1. Leave **Continue where you left off** selected.
 2. Choose the day and the time Codex says your usage resets.
-3. Choose a safety buffer. The default workflow uses 10 minutes.
+3. Choose a safety buffer.
 4. Check **Press Enter and actually send the prompt** if you want the prompt submitted automatically.
 5. Click **Arm Timer**.
+
+### What the safety buffer does
+
+The safety buffer delays delivery for a few extra minutes after the reset time you enter. It exists so Codex Relay does not try to send the prompt at the exact instant a usage reset is expected to occur.
+
+For example:
+
+```text
+Usage reset time: 6:00 PM
+Safety buffer:    10 minutes
+Prompt fires at:  6:10 PM
+```
+
+The current default is **10 minutes**. You can choose a different buffer or set it to `0` if you want the prompt to fire at the exact scheduled time.
 
 ### Schedule a custom prompt
 
@@ -149,6 +163,50 @@ Open Codex Relay with `Ctrl + Alt + K` and click **Cancel**.
 
 Canceling clears the armed state so the schedule will not be restored the next time Codex Relay starts.
 
+## Display and click-position compatibility
+
+Codex Relay does **not** target a specific numbered monitor and it is not hard-coded for a four-monitor desktop.
+
+Before inserting a prompt, the script activates the ChatGPT desktop window and then uses **client-area coordinates relative to that ChatGPT window**. The current code uses:
+
+```ahk
+clickX := 390
+clickY := clientH - 80
+```
+
+Because these coordinates are relative to the active ChatGPT window, the absolute position of that window on the Windows desktop usually does not matter. A single-monitor setup, multi-monitor setup, or moving ChatGPT from one monitor to another does not by itself require changing the code.
+
+However, the location of the Codex prompt box **inside the ChatGPT window** can vary with window size, display scaling, portrait orientation, resolution, sidebar width, or future ChatGPT UI changes. A 4K monitor or portrait monitor is not automatically incompatible, but it is worth verifying the prompt click position on your own setup before relying on unattended sending.
+
+### Verify or adjust the click position with Window Spy
+
+AutoHotkey includes **Window Spy**, which can show the mouse position relative to the active application's client area.
+
+1. Open the ChatGPT desktop app and navigate to the Codex conversation you intend to use.
+2. Put the ChatGPT window in the size and layout you normally use.
+3. Open **Window Spy** from AutoHotkey.
+4. Move the mouse over the Codex prompt input box.
+5. In Window Spy, look at the **Client** mouse coordinates.
+6. Compare those values with the click-position section in `CodexRelay.ahk`.
+
+The current horizontal coordinate is:
+
+```ahk
+clickX := 390
+```
+
+The vertical coordinate is intentionally measured from the bottom of the ChatGPT client area:
+
+```ahk
+clickY := clientH - 80
+```
+
+That means Codex Relay clicks 390 client pixels from the left side of the ChatGPT window and 80 client pixels above the bottom.
+
+If your prompt box is elsewhere, adjust these values and run a test with **Press Enter and actually send the prompt** unchecked. Confirm that Codex Relay focuses ChatGPT and pastes into the correct prompt box before enabling unattended sending.
+
+For a different horizontal location, change `390` to the Client X coordinate that lands safely inside your prompt box. For vertical adjustment, change `80` to the distance from the bottom of the ChatGPT client area that lands inside your prompt box.
+
 ## Safety behavior
 
 Codex Relay includes several intentionally conservative behaviors:
@@ -159,12 +217,13 @@ Codex Relay includes several intentionally conservative behaviors:
 - A missed schedule is not sent late.
 - Only one prompt can be scheduled at a time.
 - Prompt text is saved locally before the timer is armed.
+- You can test positioning with Enter disabled before allowing automatic submission.
 
 ## Current limitations
 
 Codex Relay currently interacts with the ChatGPT desktop app using a tested window-relative click position for the Codex prompt box.
 
-Because of that, a major ChatGPT UI change, unusual display scaling, or a significantly different layout could require adjustment to the click position in `CodexRelay.ahk`.
+A major ChatGPT UI change, significantly different window layout, unusual display scaling, portrait-oriented display, or other layout difference may require adjusting the click position in `CodexRelay.ahk` using Window Spy as described above.
 
 The script also assumes the correct Codex conversation/project is already open. It does not navigate between projects or conversations.
 
@@ -180,7 +239,7 @@ The core scheduling workflow has been tested for:
 - Canceling an armed schedule
 - Safe handling of a missed schedule
 
-Windows startup behavior is the remaining system-level test before the first public release.
+Windows startup behavior is the remaining system-level test before the first public release. Once that test is complete, this section will be updated for the release build.
 
 ## Disclaimer
 
