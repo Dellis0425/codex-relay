@@ -2,42 +2,88 @@
 #SingleInstance Force
 
 ; ============================================================
-; CODEX CONTINUATION SCHEDULER
+; CODEX RELAY
 ;
 ; Ctrl + Alt + K = Open scheduler
 ;
-; Defaults:
-;   Reset time    = 5 hours from now
-;   Safety buffer = 10 minutes
+; Codex Relay schedules ONE prompt at a time for the
+; ChatGPT desktop application's Codex interface.
 ;
-; Example:
-;   Current time: 11:48 PM
-;   Default reset: 4:48 AM
-;   Buffer:        10 minutes
-;   Actual run:    4:58 AM
+; Features:
+;   - Built-in "Continue where you left off" prompt
+;   - Custom prompts
+;   - Prompt saved to Markdown before scheduling
+;   - Persistent scheduled state
+;   - Schedule survives script restart
+;   - Supports scheduling several days ahead
+;   - Missed schedules NEVER auto-send late
 ; ============================================================
 
 
 ; ============================================================
-; GLOBAL VARIABLES
+; CONSTANTS / STORAGE
+; ============================================================
+
+global DEFAULT_PROMPT :=
+    "Continue where you left off"
+
+global PROMPT_FOLDER_NAME :=
+    "Scheduled Prompts"
+
+global STATE_FILE_NAME :=
+    "schedule.ini"
+
+global PromptDir :=
+    A_ScriptDir "\" PROMPT_FOLDER_NAME
+
+global StateFile :=
+    A_ScriptDir "\" STATE_FILE_NAME
+
+
+; ============================================================
+; GUI GLOBALS
 ; ============================================================
 
 global SchedulerGui := 0
 
+global PromptTypeDropdown := 0
+global PromptEdit := 0
+
+global DaysDropdown := 0
 global HourDropdown := 0
 global MinuteDropdown := 0
 global AmPmDropdown := 0
 global BufferDropdown := 0
+
 global SendCheckbox := 0
 
 global PreviewText := 0
 global StatusText := 0
 
+
+; ============================================================
+; SCHEDULE GLOBALS
+; ============================================================
+
 global IsArmed := false
 global ShouldSend := false
 
 global TargetTime := ""
+global CurrentPromptFile := ""
+
 global ScheduledCallback := 0
+
+global StatusMessage :=
+    "Status: NOT ARMED"
+
+
+; ============================================================
+; STARTUP
+; ============================================================
+
+DirCreate(PromptDir)
+
+RestoreSavedSchedule()
 
 
 ; ============================================================
@@ -58,22 +104,66 @@ ShowScheduler()
     global SchedulerGui
     global IsArmed
 
+    global StatusText
+    global StatusMessage
+
+    global PreviewText
+    global TargetTime
+
+
+    ; A newly-created GUI has blank dropdowns until we
+    ; initialize them at least once.
     if !SchedulerGui
+    {
         BuildSchedulerGui()
 
-    ; If there isn't currently an armed timer,
-    ; create a fresh default based on 5 hours from now.
-    ;
-    ; If a timer IS already armed, don't overwrite the user's
-    ; controls just because they reopened the GUI.
-    if !IsArmed
-    {
+        ; Always initialize the controls so HourDropdown.Text,
+        ; MinuteDropdown.Text, etc. are never empty.
         UpdateDefaultTime()
     }
 
-    UpdatePreview()
 
-    SchedulerGui.Show("AutoSize Center")
+    ; ========================================================
+    ; NO ACTIVE SCHEDULE
+    ; ========================================================
+
+    if !IsArmed
+    {
+        UpdateDefaultTime()
+        UpdatePreview()
+    }
+
+
+    ; ========================================================
+    ; ACTIVE / RESTORED SCHEDULE
+    ;
+    ; Do NOT calculate the preview from the fresh dropdowns.
+    ; Show the schedule that is actually armed.
+    ; ========================================================
+
+    else
+    {
+        PreviewText.Text :=
+            "Currently armed schedule:`n"
+            . FormatTime(
+                TargetTime,
+                "dddd, MMMM d, yyyy"
+            )
+            . " at "
+            . FormatTime(
+                TargetTime,
+                "h:mm tt"
+            )
+    }
+
+
+    StatusText.Text :=
+        StatusMessage
+
+
+    SchedulerGui.Show(
+        "AutoSize Center"
+    )
 }
 
 
@@ -85,6 +175,10 @@ BuildSchedulerGui()
 {
     global SchedulerGui
 
+    global PromptTypeDropdown
+    global PromptEdit
+
+    global DaysDropdown
     global HourDropdown
     global MinuteDropdown
     global AmPmDropdown
@@ -94,24 +188,83 @@ BuildSchedulerGui()
 
     global PreviewText
     global StatusText
+    global StatusMessage
+
+    global DEFAULT_PROMPT
 
 
     SchedulerGui := Gui(
         "+AlwaysOnTop",
-        "Codex Continuation Scheduler"
+        "Codex Relay"
     )
 
-    SchedulerGui.SetFont("s10")
+
+    SchedulerGui.SetFont(
+        "s10"
+    )
 
 
     SchedulerGui.AddText(
-        "w410",
-        "Schedule Codex to continue after your usage resets."
+        "w500",
+        "Schedule a prompt for your current Codex session."
     )
 
 
     ; ========================================================
-    ; BUILD DROPDOWN LISTS
+    ; PROMPT TYPE
+    ; ========================================================
+
+    SchedulerGui.AddText(
+        "xm y+20",
+        "Prompt:"
+    )
+
+
+    PromptTypeDropdown :=
+        SchedulerGui.AddDropDownList(
+            "xm y+6 w250 Choose1",
+            [
+                "Continue where you left off",
+                "Custom Prompt"
+            ]
+        )
+
+
+    ; ========================================================
+    ; PROMPT EDITOR
+    ; ========================================================
+
+    SchedulerGui.AddText(
+        "xm y+15",
+        "Prompt text:"
+    )
+
+
+    PromptEdit :=
+        SchedulerGui.AddEdit(
+            "xm y+6 w500 r7 WantTab",
+            DEFAULT_PROMPT
+        )
+
+
+    ; ========================================================
+    ; DAYS AHEAD OPTIONS
+    ; ========================================================
+
+    days := [
+        "Today",
+        "Tomorrow",
+        "2 days from now",
+        "3 days from now",
+        "4 days from now",
+        "5 days from now",
+        "6 days from now",
+        "7 days from now"
+    ]
+
+
+    ; ========================================================
+    ; HOURS
     ; ========================================================
 
     hours := []
@@ -123,6 +276,10 @@ BuildSchedulerGui()
         )
     }
 
+
+    ; ========================================================
+    ; MINUTES
+    ; ========================================================
 
     minutes := []
 
@@ -137,6 +294,10 @@ BuildSchedulerGui()
     }
 
 
+    ; ========================================================
+    ; SAFETY BUFFERS
+    ; ========================================================
+
     buffers := [
         "0",
         "5",
@@ -148,19 +309,37 @@ BuildSchedulerGui()
 
 
     ; ========================================================
-    ; RESET TIME
+    ; DAYS AHEAD
     ; ========================================================
 
     SchedulerGui.AddText(
         "xm y+20",
+        "Day:"
+    )
+
+
+    DaysDropdown :=
+        SchedulerGui.AddDropDownList(
+            "x+10 yp-3 w155",
+            days
+        )
+
+
+    ; ========================================================
+    ; RESET TIME
+    ; ========================================================
+
+    SchedulerGui.AddText(
+        "xm y+18",
         "Reset time:"
     )
 
 
-    HourDropdown := SchedulerGui.AddDropDownList(
-        "x+12 yp-3 w60",
-        hours
-    )
+    HourDropdown :=
+        SchedulerGui.AddDropDownList(
+            "x+12 yp-3 w60",
+            hours
+        )
 
 
     SchedulerGui.AddText(
@@ -169,16 +348,21 @@ BuildSchedulerGui()
     )
 
 
-    MinuteDropdown := SchedulerGui.AddDropDownList(
-        "x+5 yp-4 w65",
-        minutes
-    )
+    MinuteDropdown :=
+        SchedulerGui.AddDropDownList(
+            "x+5 yp-4 w65",
+            minutes
+        )
 
 
-    AmPmDropdown := SchedulerGui.AddDropDownList(
-        "x+10 yp w70",
-        ["AM", "PM"]
-    )
+    AmPmDropdown :=
+        SchedulerGui.AddDropDownList(
+            "x+10 yp w70",
+            [
+                "AM",
+                "PM"
+            ]
+        )
 
 
     ; ========================================================
@@ -186,15 +370,16 @@ BuildSchedulerGui()
     ; ========================================================
 
     SchedulerGui.AddText(
-        "xm y+20",
+        "xm y+18",
         "Safety buffer:"
     )
 
 
-    BufferDropdown := SchedulerGui.AddDropDownList(
-        "x+10 yp-3 w70",
-        buffers
-    )
+    BufferDropdown :=
+        SchedulerGui.AddDropDownList(
+            "x+10 yp-3 w70",
+            buffers
+        )
 
 
     SchedulerGui.AddText(
@@ -207,51 +392,97 @@ BuildSchedulerGui()
     ; SEND OPTION
     ; ========================================================
 
-    SendCheckbox := SchedulerGui.AddCheckbox(
-        "xm y+22",
-        "Press Enter and actually send the prompt"
-    )
+    SendCheckbox :=
+        SchedulerGui.AddCheckbox(
+            "xm y+20",
+            "Press Enter and actually send the prompt"
+        )
 
 
     ; ========================================================
-    ; NEW SCHEDULE PREVIEW
+    ; PREVIEW
     ; ========================================================
 
-    PreviewText := SchedulerGui.AddText(
-        "xm y+22 w410 h48",
-        "New schedule preview:`nCalculating..."
-    )
+    PreviewText :=
+        SchedulerGui.AddText(
+            "xm y+20 w500 h48",
+            "New schedule preview:`nCalculating..."
+        )
 
 
     ; ========================================================
     ; CURRENT STATUS
     ; ========================================================
 
-    StatusText := SchedulerGui.AddText(
-        "xm y+8 w410 h38",
-        "Status: NOT ARMED"
-    )
+    StatusText :=
+        SchedulerGui.AddText(
+            "xm y+8 w500 h42",
+            StatusMessage
+        )
 
 
     ; ========================================================
     ; BUTTONS
     ; ========================================================
 
-    armButton := SchedulerGui.AddButton(
-        "xm y+22 w120 h34 Default",
-        "Arm Timer"
+    armButton :=
+        SchedulerGui.AddButton(
+            "xm y+20 w120 h34 Default",
+            "Arm Timer"
+        )
+
+
+    cancelButton :=
+        SchedulerGui.AddButton(
+            "x+10 w100 h34",
+            "Cancel"
+        )
+
+
+    closeButton :=
+        SchedulerGui.AddButton(
+            "x+10 w90 h34",
+            "Close"
+        )
+
+
+    ; ========================================================
+    ; EVENTS
+    ; ========================================================
+
+    PromptTypeDropdown.OnEvent(
+        "Change",
+        PromptTypeChanged
     )
 
 
-    cancelButton := SchedulerGui.AddButton(
-        "x+10 w100 h34",
-        "Cancel"
+    DaysDropdown.OnEvent(
+        "Change",
+        UpdatePreview
     )
 
 
-    closeButton := SchedulerGui.AddButton(
-        "x+10 w90 h34",
-        "Close"
+    HourDropdown.OnEvent(
+        "Change",
+        UpdatePreview
+    )
+
+
+    MinuteDropdown.OnEvent(
+        "Change",
+        UpdatePreview
+    )
+
+
+    AmPmDropdown.OnEvent(
+        "Change",
+        UpdatePreview
+    )
+
+
+    BufferDropdown.OnEvent(
+        "Change",
+        UpdatePreview
     )
 
 
@@ -277,87 +508,100 @@ BuildSchedulerGui()
         "Close",
         HideScheduler
     )
-
-
-    ; ========================================================
-    ; LIVE PREVIEW EVENTS
-    ; ========================================================
-
-    HourDropdown.OnEvent(
-        "Change",
-        UpdatePreview
-    )
-
-
-    MinuteDropdown.OnEvent(
-        "Change",
-        UpdatePreview
-    )
-
-
-    AmPmDropdown.OnEvent(
-        "Change",
-        UpdatePreview
-    )
-
-
-    BufferDropdown.OnEvent(
-        "Change",
-        UpdatePreview
-    )
 }
 
 
 ; ============================================================
-; DEFAULT RESET TIME = 5 HOURS FROM NOW
+; PROMPT TYPE CHANGED
+; ============================================================
+
+PromptTypeChanged(*)
+{
+    global PromptTypeDropdown
+    global PromptEdit
+    global DEFAULT_PROMPT
+
+
+    if PromptTypeDropdown.Text =
+        "Continue where you left off"
+    {
+        PromptEdit.Value :=
+            DEFAULT_PROMPT
+    }
+    else
+    {
+        ; If switching from the built-in prompt to Custom,
+        ; clear the built-in text automatically.
+        if Trim(PromptEdit.Value) =
+            DEFAULT_PROMPT
+        {
+            PromptEdit.Value := ""
+        }
+
+
+        PromptEdit.Focus()
+    }
+}
+
+
+; ============================================================
+; DEFAULT SCHEDULE = FIVE HOURS FROM NOW
 ; ============================================================
 
 UpdateDefaultTime()
 {
+    global DaysDropdown
+
     global HourDropdown
     global MinuteDropdown
     global AmPmDropdown
     global BufferDropdown
 
 
-    defaultTime := DateAdd(
-        A_Now,
-        5,
-        "Hours"
-    )
+    defaultTime :=
+        DateAdd(
+            A_Now,
+            5,
+            "Hours"
+        )
 
 
-    hour12 := Number(
+    ; --------------------------------------------------------
+    ; FIGURE OUT WHETHER +5 HOURS IS TODAY OR TOMORROW
+    ; --------------------------------------------------------
+
+    todayDate :=
+        FormatTime(
+            A_Now,
+            "yyyyMMdd"
+        )
+
+
+    defaultDate :=
         FormatTime(
             defaultTime,
-            "h"
+            "yyyyMMdd"
         )
-    )
 
 
-    minute := Number(
-        FormatTime(
-            defaultTime,
-            "mm"
-        )
-    )
-
-
-    ampm := FormatTime(
-        defaultTime,
-        "tt"
-    )
+    if defaultDate = todayDate
+        DaysDropdown.Choose(1)
+    else
+        DaysDropdown.Choose(2)
 
 
     ; --------------------------------------------------------
     ; HOUR
-    ;
-    ; Dropdown index:
-    ; 1 = 1
-    ; 2 = 2
-    ; ...
-    ; 12 = 12
     ; --------------------------------------------------------
+
+    hour12 :=
+        Number(
+            FormatTime(
+                defaultTime,
+                "h"
+            )
+        )
+
 
     HourDropdown.Choose(
         hour12
@@ -366,13 +610,16 @@ UpdateDefaultTime()
 
     ; --------------------------------------------------------
     ; MINUTE
-    ;
-    ; Dropdown index:
-    ; 1 = 00
-    ; 2 = 01
-    ; ...
-    ; 60 = 59
     ; --------------------------------------------------------
+
+    minute :=
+        Number(
+            FormatTime(
+                defaultTime,
+                "mm"
+            )
+        )
+
 
     MinuteDropdown.Choose(
         minute + 1
@@ -383,23 +630,21 @@ UpdateDefaultTime()
     ; AM / PM
     ; --------------------------------------------------------
 
+    ampm :=
+        FormatTime(
+            defaultTime,
+            "tt"
+        )
+
+
     if ampm = "AM"
-    {
         AmPmDropdown.Choose(1)
-    }
     else
-    {
         AmPmDropdown.Choose(2)
-    }
 
 
     ; --------------------------------------------------------
-    ; DEFAULT BUFFER = 10 MINUTES
-    ;
-    ; Buffer list:
-    ; 0, 5, 10, 15, 20, 30
-    ;
-    ; Index 3 = 10
+    ; DEFAULT SAFETY BUFFER = 10 MINUTES
     ; --------------------------------------------------------
 
     BufferDropdown.Choose(3)
@@ -407,7 +652,23 @@ UpdateDefaultTime()
 
 
 ; ============================================================
-; CALCULATE TARGET TIME FROM GUI
+; GET DAYS AHEAD
+; ============================================================
+
+GetDaysAhead()
+{
+    global DaysDropdown
+
+    ; Dropdown index 1 = today = 0 days.
+    ; Dropdown index 2 = tomorrow = 1 day.
+    ; etc.
+
+    return DaysDropdown.Value - 1
+}
+
+
+; ============================================================
+; CALCULATE TARGET TIME
 ; ============================================================
 
 GetTargetTimeFromGui()
@@ -418,26 +679,34 @@ GetTargetTimeFromGui()
     global BufferDropdown
 
 
-    hour := Number(
-        HourDropdown.Text
-    )
+    daysAhead :=
+        GetDaysAhead()
 
 
-    minute := Number(
-        MinuteDropdown.Text
-    )
+    hour :=
+        Number(
+            HourDropdown.Text
+        )
 
 
-    ampm := AmPmDropdown.Text
+    minute :=
+        Number(
+            MinuteDropdown.Text
+        )
 
 
-    bufferMinutes := Number(
-        BufferDropdown.Text
-    )
+    ampm :=
+        AmPmDropdown.Text
+
+
+    bufferMinutes :=
+        Number(
+            BufferDropdown.Text
+        )
 
 
     ; ========================================================
-    ; CONVERT 12-HOUR TIME TO 24-HOUR TIME
+    ; CONVERT 12-HOUR CLOCK TO 24-HOUR
     ; ========================================================
 
     hour24 := hour
@@ -446,31 +715,44 @@ GetTargetTimeFromGui()
     if ampm = "AM"
     {
         if hour = 12
-        {
             hour24 := 0
-        }
     }
     else
     {
         if hour != 12
-        {
             hour24 := hour + 12
-        }
     }
 
 
     ; ========================================================
-    ; BUILD TIMESTAMP FOR TODAY
+    ; BUILD SELECTED DATE
     ; ========================================================
 
-    today := FormatTime(
-        A_Now,
-        "yyyyMMdd"
-    )
+    todayMidnight :=
+        FormatTime(
+            A_Now,
+            "yyyyMMdd"
+        )
+        . "000000"
+
+
+    selectedDay :=
+        DateAdd(
+            todayMidnight,
+            daysAhead,
+            "Days"
+        )
+
+
+    selectedDate :=
+        FormatTime(
+            selectedDay,
+            "yyyyMMdd"
+        )
 
 
     resetTimestamp :=
-        today
+        selectedDate
         . Format(
             "{:02}",
             hour24
@@ -483,33 +765,15 @@ GetTargetTimeFromGui()
 
 
     ; ========================================================
-    ; IF THAT RESET CLOCK TIME ALREADY PASSED TODAY,
-    ; ASSUME THE USER MEANS TOMORROW
-    ; ========================================================
-
-    if DateDiff(
-        resetTimestamp,
-        A_Now,
-        "Seconds"
-    ) <= 0
-    {
-        resetTimestamp := DateAdd(
-            resetTimestamp,
-            1,
-            "Days"
-        )
-    }
-
-
-    ; ========================================================
     ; ADD SAFETY BUFFER
     ; ========================================================
 
-    targetTime := DateAdd(
-        resetTimestamp,
-        bufferMinutes,
-        "Minutes"
-    )
+    targetTime :=
+        DateAdd(
+            resetTimestamp,
+            bufferMinutes,
+            "Minutes"
+        )
 
 
     return targetTime
@@ -517,7 +781,7 @@ GetTargetTimeFromGui()
 
 
 ; ============================================================
-; UPDATE NEW-SCHEDULE PREVIEW
+; UPDATE SCHEDULE PREVIEW
 ; ============================================================
 
 UpdatePreview(*)
@@ -525,7 +789,26 @@ UpdatePreview(*)
     global PreviewText
 
 
-    target := GetTargetTimeFromGui()
+    target :=
+        GetTargetTimeFromGui()
+
+
+    secondsUntil :=
+        DateDiff(
+            target,
+            A_Now,
+            "Seconds"
+        )
+
+
+    if secondsUntil <= 0
+    {
+        PreviewText.Text :=
+            "New schedule preview:`n"
+            . "Selected time is not in the future."
+
+        return
+    }
 
 
     PreviewText.Text :=
@@ -548,58 +831,100 @@ UpdatePreview(*)
 
 ArmTimer(*)
 {
+    global PromptEdit
     global SendCheckbox
-    global StatusText
+
     global SchedulerGui
+    global StatusText
+    global StatusMessage
 
     global IsArmed
     global ShouldSend
 
     global TargetTime
+    global CurrentPromptFile
     global ScheduledCallback
 
 
-    ; --------------------------------------------------------
-    ; CALCULATE TARGET
-    ; --------------------------------------------------------
+    ; ========================================================
+    ; VALIDATE PROMPT
+    ; ========================================================
 
-    TargetTime := GetTargetTimeFromGui()
-
-
-    secondsUntil := DateDiff(
-        TargetTime,
-        A_Now,
-        "Seconds"
-    )
+    promptText :=
+        Trim(
+            PromptEdit.Value
+        )
 
 
-    if secondsUntil <= 0
+    if promptText = ""
     {
         MsgBox(
-            "The calculated time is not in the future."
+            "The prompt cannot be empty."
         )
 
         return
     }
 
 
-    delayMs := secondsUntil * 1000
+    ; ========================================================
+    ; CALCULATE TARGET TIME
+    ; ========================================================
+
+    TargetTime :=
+        GetTargetTimeFromGui()
 
 
-    ; --------------------------------------------------------
-    ; REMEMBER WHETHER ENTER SHOULD BE PRESSED
-    ; --------------------------------------------------------
+    secondsUntil :=
+        DateDiff(
+            TargetTime,
+            A_Now,
+            "Seconds"
+        )
+
+
+    if secondsUntil <= 0
+    {
+        MsgBox(
+            "The scheduled time must be in the future."
+        )
+
+        return
+    }
+
 
     ShouldSend :=
         SendCheckbox.Value = 1
 
 
-    IsArmed := true
+    createdTime :=
+        A_Now
 
 
-    ; --------------------------------------------------------
-    ; CANCEL ANY EXISTING SCHEDULE FIRST
-    ; --------------------------------------------------------
+    ; ========================================================
+    ; SAVE PROMPT TO MARKDOWN
+    ; ========================================================
+
+    CurrentPromptFile :=
+        SavePromptToMarkdown(
+            promptText,
+            createdTime,
+            TargetTime
+        )
+
+
+    if CurrentPromptFile = ""
+    {
+        MsgBox(
+            "Codex Relay could not save the prompt file."
+        )
+
+        return
+    }
+
+
+    ; ========================================================
+    ; STOP ANY OLD TIMER
+    ; ========================================================
 
     if ScheduledCallback
     {
@@ -610,63 +935,65 @@ ArmTimer(*)
     }
 
 
+    ; ========================================================
+    ; CREATE NEW TIMER
+    ; ========================================================
+
     ScheduledCallback :=
-        RunScheduledContinue
+        RunScheduledPrompt
 
-
-    ; --------------------------------------------------------
-    ; NEGATIVE INTERVAL = RUN ONCE
-    ; --------------------------------------------------------
 
     SetTimer(
         ScheduledCallback,
-        -delayMs
+        -(secondsUntil * 1000)
     )
 
 
-    ; --------------------------------------------------------
-    ; DISPLAY ARMED STATUS
-    ; --------------------------------------------------------
+    IsArmed := true
 
-    displayTime := FormatTime(
-        TargetTime,
-        "ddd MMM d, yyyy, h:mm:ss tt"
+
+    ; ========================================================
+    ; SAVE PERSISTENT STATE
+    ; ========================================================
+
+    SaveScheduleState(
+        createdTime
     )
+
+
+    ; ========================================================
+    ; DISPLAY STATUS
+    ; ========================================================
+
+    StatusMessage :=
+        "Status: ARMED for "
+        . FormatTime(
+            TargetTime,
+            "ddd MMM d, yyyy, h:mm:ss tt"
+        )
 
 
     StatusText.Text :=
-        "Status: ARMED for " . displayTime
+        StatusMessage
 
-
-    ; ========================================================
-    ; HIDE GUI AFTER ARMING
-    ; ========================================================
-
-    SchedulerGui.Hide()
-
-
-    ; ========================================================
-    ; TRAY ICON HOVER TEXT
-    ; ========================================================
 
     A_IconTip :=
-        "Codex continuation ARMED for "
+        "Codex Relay ARMED for "
         . FormatTime(
             TargetTime,
             "ddd MMM d, h:mm tt"
         )
 
 
-    ; ========================================================
-    ; WINDOWS NOTIFICATION
-    ; ========================================================
+    SchedulerGui.Hide()
+
 
     TrayTip(
-        "Codex Scheduler",
-        "Armed for "
+        "Codex Relay",
+        "Prompt saved and armed for "
         . FormatTime(
             TargetTime,
-            "ddd MMM d, yyyy"
+            "ddd MMM d"
         )
         . " at "
         . FormatTime(
@@ -679,28 +1006,483 @@ ArmTimer(*)
 
 
 ; ============================================================
+; SAVE PROMPT TO MARKDOWN
+; ============================================================
+
+SavePromptToMarkdown(
+    promptText,
+    createdTime,
+    scheduledTime
+)
+{
+    global PromptDir
+
+
+    ; Create Scheduled Prompts only when actually needed.
+    DirCreate(
+        PromptDir
+    )
+
+
+    filename :=
+        "created_"
+        . FormatTime(
+            createdTime,
+            "yyyy-MM-dd_HH-mm-ss"
+        )
+        . "__scheduled_"
+        . FormatTime(
+            scheduledTime,
+            "yyyy-MM-dd_HH-mm-ss"
+        )
+        . ".md"
+
+
+    filePath :=
+        PromptDir
+        . "\"
+        . filename
+
+
+    ; Extremely unlikely, but protect against overwrite if
+    ; two prompts happen to be created during the same second.
+    counter := 2
+
+
+    while FileExist(
+        filePath
+    )
+    {
+        filename :=
+            "created_"
+            . FormatTime(
+                createdTime,
+                "yyyy-MM-dd_HH-mm-ss"
+            )
+            . "__scheduled_"
+            . FormatTime(
+                scheduledTime,
+                "yyyy-MM-dd_HH-mm-ss"
+            )
+            . "_"
+            . counter
+            . ".md"
+
+
+        filePath :=
+            PromptDir
+            . "\"
+            . filename
+
+
+        counter += 1
+    }
+
+
+    try
+    {
+        FileAppend(
+            promptText,
+            filePath,
+            "UTF-8"
+        )
+    }
+    catch
+    {
+        return ""
+    }
+
+
+    return filePath
+}
+
+
+; ============================================================
+; SAVE PERSISTENT SCHEDULE
+; ============================================================
+
+SaveScheduleState(createdTime)
+{
+    global StateFile
+
+    global TargetTime
+    global CurrentPromptFile
+    global ShouldSend
+
+
+    ; Store only the prompt filename instead of its entire
+    ; absolute path. This makes the project portable if the
+    ; codex-relay folder is moved later.
+
+    SplitPath(
+        CurrentPromptFile,
+        &promptFilename
+    )
+
+
+    IniWrite(
+        "1",
+        StateFile,
+        "Schedule",
+        "Armed"
+    )
+
+
+    IniWrite(
+        TargetTime,
+        StateFile,
+        "Schedule",
+        "TargetTime"
+    )
+
+
+    IniWrite(
+        promptFilename,
+        StateFile,
+        "Schedule",
+        "PromptFile"
+    )
+
+
+    IniWrite(
+        ShouldSend ? "1" : "0",
+        StateFile,
+        "Schedule",
+        "PressEnter"
+    )
+
+
+    IniWrite(
+        createdTime,
+        StateFile,
+        "Schedule",
+        "CreatedAt"
+    )
+}
+
+
+; ============================================================
+; RESTORE PERSISTED SCHEDULE ON SCRIPT START
+; ============================================================
+
+RestoreSavedSchedule()
+{
+    global StateFile
+    global PromptDir
+
+    global IsArmed
+    global ShouldSend
+
+    global TargetTime
+    global CurrentPromptFile
+
+    global ScheduledCallback
+    global StatusMessage
+
+
+    A_IconTip :=
+        "Codex Relay — not armed"
+
+
+    if !FileExist(
+        StateFile
+    )
+    {
+        return
+    }
+
+
+    armed :=
+        IniRead(
+            StateFile,
+            "Schedule",
+            "Armed",
+            "0"
+        )
+
+
+    if armed != "1"
+    {
+        return
+    }
+
+
+    savedTarget :=
+        IniRead(
+            StateFile,
+            "Schedule",
+            "TargetTime",
+            ""
+        )
+
+
+    savedPromptFilename :=
+        IniRead(
+            StateFile,
+            "Schedule",
+            "PromptFile",
+            ""
+        )
+
+
+    savedPressEnter :=
+        IniRead(
+            StateFile,
+            "Schedule",
+            "PressEnter",
+            "0"
+        )
+
+
+    ; --------------------------------------------------------
+    ; VALIDATE SAVED STATE
+    ; --------------------------------------------------------
+
+    if savedTarget = "" ||
+        savedPromptFilename = ""
+    {
+        MarkScheduleInactive()
+
+
+        StatusMessage :=
+            "Status: NOT ARMED — saved schedule was invalid"
+
+
+        return
+    }
+
+
+    CurrentPromptFile :=
+        PromptDir
+        . "\"
+        . savedPromptFilename
+
+
+    TargetTime :=
+        savedTarget
+
+
+    ShouldSend :=
+        savedPressEnter = "1"
+
+
+    secondsUntil :=
+        DateDiff(
+            TargetTime,
+            A_Now,
+            "Seconds"
+        )
+
+
+    ; ========================================================
+    ; MISSED SCHEDULE
+    ;
+    ; SAFETY RULE:
+    ; NEVER automatically send a prompt late after reboot.
+    ; ========================================================
+
+    if secondsUntil <= 0
+    {
+        MarkScheduleInactive()
+
+
+        IsArmed := false
+
+
+        StatusMessage :=
+            "Status: NOT ARMED — missed schedule for "
+            . FormatTime(
+                TargetTime,
+                "ddd MMM d, h:mm tt"
+            )
+
+
+        A_IconTip :=
+            "Codex Relay — scheduled prompt was missed"
+
+
+        TrayTip(
+            "Codex Relay",
+            "A scheduled prompt was missed while Codex Relay was not running.",
+            2
+        )
+
+
+        return
+    }
+
+
+    ; ========================================================
+    ; PROMPT FILE MUST STILL EXIST
+    ; ========================================================
+
+    if !FileExist(
+        CurrentPromptFile
+    )
+    {
+        MarkScheduleInactive()
+
+
+        IsArmed := false
+
+
+        StatusMessage :=
+            "Status: NOT ARMED — saved prompt file is missing"
+
+
+        A_IconTip :=
+            "Codex Relay — prompt file missing"
+
+
+        return
+    }
+
+
+    ; ========================================================
+    ; RESTORE TIMER
+    ; ========================================================
+
+    ScheduledCallback :=
+        RunScheduledPrompt
+
+
+    SetTimer(
+        ScheduledCallback,
+        -(secondsUntil * 1000)
+    )
+
+
+    IsArmed := true
+
+
+    StatusMessage :=
+        "Status: ARMED for "
+        . FormatTime(
+            TargetTime,
+            "ddd MMM d, yyyy, h:mm:ss tt"
+        )
+
+
+    A_IconTip :=
+        "Codex Relay ARMED for "
+        . FormatTime(
+            TargetTime,
+            "ddd MMM d, h:mm tt"
+        )
+
+
+    TrayTip(
+        "Codex Relay",
+        "Saved schedule restored for "
+        . FormatTime(
+            TargetTime,
+            "ddd MMM d, h:mm tt"
+        ),
+        1
+    )
+}
+
+
+; ============================================================
+; MARK SAVED SCHEDULE INACTIVE
+; ============================================================
+
+MarkScheduleInactive()
+{
+    global StateFile
+
+
+    if FileExist(
+        StateFile
+    )
+    {
+        IniWrite(
+            "0",
+            StateFile,
+            "Schedule",
+            "Armed"
+        )
+    }
+}
+
+
+; ============================================================
 ; SCHEDULE FIRES
 ; ============================================================
 
-RunScheduledContinue()
+RunScheduledPrompt()
 {
     global IsArmed
     global ShouldSend
 
+    global CurrentPromptFile
+
+    global StatusMessage
     global StatusText
-    global TargetTime
 
 
-    ; The timer has now fired.
-    ;
-    ; It is no longer armed regardless of whether the
-    ; automation itself succeeds or fails.
+    ; The timer is no longer armed once execution begins.
     IsArmed := false
 
 
-    success := ContinueCodex(
-        ShouldSend
+    ; Mark inactive BEFORE interacting with Codex so a crash
+    ; cannot accidentally resend the same prompt on restart.
+    MarkScheduleInactive()
+
+
+    ; ========================================================
+    ; READ PROMPT FROM MARKDOWN
+    ; ========================================================
+
+    if !FileExist(
+        CurrentPromptFile
     )
+    {
+        HandleScheduledFailure(
+            "The scheduled prompt file could not be found."
+        )
+
+        return
+    }
+
+
+    try
+    {
+        promptText :=
+            FileRead(
+                CurrentPromptFile,
+                "UTF-8"
+            )
+    }
+    catch
+    {
+        HandleScheduledFailure(
+            "The scheduled prompt file could not be read."
+        )
+
+        return
+    }
+
+
+    if Trim(promptText) = ""
+    {
+        HandleScheduledFailure(
+            "The scheduled prompt file was empty."
+        )
+
+        return
+    }
+
+
+    ; ========================================================
+    ; SEND TO CODEX
+    ; ========================================================
+
+    success :=
+        ContinueCodex(
+            promptText,
+            ShouldSend
+        )
 
 
     ; ========================================================
@@ -709,64 +1491,49 @@ RunScheduledContinue()
 
     if success
     {
-        ; ----------------------------------------------------
-        ; PROMPT WAS ACTUALLY SENT
-        ; ----------------------------------------------------
+        completedTime :=
+            FormatTime(
+                A_Now,
+                "h:mm:ss tt"
+            )
+
 
         if ShouldSend
         {
-            sentTime := FormatTime(
-                A_Now,
-                "h:mm:ss tt"
-            )
-
-
-            StatusText.Text :=
+            StatusMessage :=
                 "Status: NOT ARMED — last prompt sent at "
-                . sentTime
-
-
-            A_IconTip :=
-                "Codex Scheduler — not armed"
+                . completedTime
 
 
             TrayTip(
-                "Codex Scheduler",
-                "Continue prompt SENT at "
-                . sentTime,
+                "Codex Relay",
+                "Scheduled prompt SENT at "
+                . completedTime,
                 1
             )
         }
-
-
-        ; ----------------------------------------------------
-        ; PROMPT WAS TYPED BUT ENTER WAS NOT PRESSED
-        ; ----------------------------------------------------
-
         else
         {
-            typedTime := FormatTime(
-                A_Now,
-                "h:mm:ss tt"
-            )
-
-
-            StatusText.Text :=
+            StatusMessage :=
                 "Status: NOT ARMED — last prompt typed at "
-                . typedTime
-
-
-            A_IconTip :=
-                "Codex Scheduler — not armed"
+                . completedTime
 
 
             TrayTip(
-                "Codex Scheduler",
+                "Codex Relay",
                 "Prompt typed but NOT sent at "
-                . typedTime,
+                . completedTime,
                 1
             )
         }
+
+
+        A_IconTip :=
+            "Codex Relay — not armed"
+
+
+        if StatusText
+            StatusText.Text := StatusMessage
     }
 
 
@@ -776,27 +1543,49 @@ RunScheduledContinue()
 
     else
     {
-        failedTime := FormatTime(
+        HandleScheduledFailure(
+            "Could not control the ChatGPT desktop app."
+        )
+    }
+}
+
+
+; ============================================================
+; FAILURE HANDLER
+; ============================================================
+
+HandleScheduledFailure(message)
+{
+    global StatusMessage
+    global StatusText
+
+
+    failedTime :=
+        FormatTime(
             A_Now,
             "h:mm:ss tt"
         )
 
 
+    StatusMessage :=
+        "Status: NOT ARMED — last attempt failed at "
+        . failedTime
+
+
+    if StatusText
         StatusText.Text :=
-            "Status: NOT ARMED — last attempt failed at "
-            . failedTime
+            StatusMessage
 
 
-        A_IconTip :=
-            "Codex Scheduler — not armed"
+    A_IconTip :=
+        "Codex Relay — not armed"
 
 
-        TrayTip(
-            "Codex Scheduler",
-            "Could not control the ChatGPT app.",
-            2
-        )
-    }
+    TrayTip(
+        "Codex Relay",
+        message,
+        2
+    )
 }
 
 
@@ -804,25 +1593,27 @@ RunScheduledContinue()
 ; CONTROL CHATGPT / CODEX
 ; ============================================================
 
-ContinueCodex(sendIt := false)
+ContinueCodex(
+    promptText,
+    sendIt := false
+)
 {
     ; ========================================================
     ; CHATGPT MUST ALREADY BE OPEN
     ; ========================================================
 
-    codex := WinExist(
-        "ahk_exe ChatGPT.exe"
-    )
+    codex :=
+        WinExist(
+            "ahk_exe ChatGPT.exe"
+        )
 
 
     if !codex
-    {
         return false
-    }
 
 
     ; ========================================================
-    ; BRING CHATGPT TO THE FRONT
+    ; BRING CHATGPT TO FRONT
     ; ========================================================
 
     WinActivate(
@@ -840,12 +1631,11 @@ ContinueCodex(sendIt := false)
     }
 
 
-    ; Give Chromium / Codex time to become interactive.
     Sleep 1500
 
 
     ; ========================================================
-    ; CONFIRM CHATGPT STILL OWNS FOCUS
+    ; VERIFY FOCUS
     ; ========================================================
 
     if !WinActive(
@@ -872,8 +1662,7 @@ ContinueCodex(sendIt := false)
     ; ========================================================
     ; CODEX PROMPT POSITION
     ;
-    ; This is based on the layout already tested successfully
-    ; on this machine.
+    ; Based on the layout already tested successfully.
     ; ========================================================
 
     clickX := 390
@@ -892,12 +1681,11 @@ ContinueCodex(sendIt := false)
     )
 
 
-    ; Give the prompt box time to receive keyboard focus.
     Sleep 1000
 
 
     ; ========================================================
-    ; SAFETY CHECK BEFORE TYPING
+    ; VERIFY FOCUS AGAIN
     ; ========================================================
 
     if !WinActive(
@@ -909,12 +1697,18 @@ ContinueCodex(sendIt := false)
 
 
     ; ========================================================
-    ; TYPE CONTINUATION PROMPT
+    ; PASTE PROMPT
+    ;
+    ; Clipboard paste is much safer for large multiline
+    ; prompts than simulating thousands of keystrokes.
     ; ========================================================
 
-    SendText(
-        "Continue where you left off"
+    if !PastePromptText(
+        promptText
     )
+    {
+        return false
+    }
 
 
     ; ========================================================
@@ -925,10 +1719,6 @@ ContinueCodex(sendIt := false)
     {
         Sleep 800
 
-
-        ; ----------------------------------------------------
-        ; FINAL SAFETY CHECK BEFORE ENTER
-        ; ----------------------------------------------------
 
         if !WinActive(
             "ahk_id " codex
@@ -947,19 +1737,59 @@ ContinueCodex(sendIt := false)
 
 
 ; ============================================================
-; CANCEL SCHEDULE
+; SAFE CLIPBOARD PASTE
+; ============================================================
+
+PastePromptText(text)
+{
+    savedClipboard :=
+        ClipboardAll()
+
+
+    A_Clipboard := ""
+
+
+    A_Clipboard :=
+        text
+
+
+    if !ClipWait(2)
+    {
+        A_Clipboard :=
+            savedClipboard
+
+
+        return false
+    }
+
+
+    Send "^v"
+
+
+    Sleep 400
+
+
+    ; Restore whatever the user previously had copied.
+    A_Clipboard :=
+        savedClipboard
+
+
+    return true
+}
+
+
+; ============================================================
+; CANCEL ACTIVE SCHEDULE
 ; ============================================================
 
 CancelTimer(*)
 {
     global IsArmed
     global ScheduledCallback
+
+    global StatusMessage
     global StatusText
 
-
-    ; --------------------------------------------------------
-    ; STOP SCHEDULED CALLBACK
-    ; --------------------------------------------------------
 
     if ScheduledCallback
     {
@@ -973,32 +1803,27 @@ CancelTimer(*)
     IsArmed := false
 
 
-    ; --------------------------------------------------------
-    ; UPDATE GUI STATE
-    ; --------------------------------------------------------
+    MarkScheduleInactive()
+
+
+    StatusMessage :=
+        "Status: NOT ARMED — schedule cancelled"
+
 
     if StatusText
     {
         StatusText.Text :=
-            "Status: NOT ARMED — schedule cancelled"
+            StatusMessage
     }
 
 
-    ; --------------------------------------------------------
-    ; RESET TRAY HOVER TEXT
-    ; --------------------------------------------------------
-
     A_IconTip :=
-        "Codex Scheduler — not armed"
+        "Codex Relay — not armed"
 
-
-    ; --------------------------------------------------------
-    ; WINDOWS NOTIFICATION
-    ; --------------------------------------------------------
 
     TrayTip(
-        "Codex Scheduler",
-        "Scheduled continuation cancelled.",
+        "Codex Relay",
+        "Scheduled prompt cancelled.",
         1
     )
 }
@@ -1009,7 +1834,10 @@ CancelTimer(*)
 ;
 ; IMPORTANT:
 ; Closing the GUI does NOT cancel an armed timer.
-; Use Cancel or Exit the script to cancel it.
+; Use Cancel or exit Codex Relay to stop an in-memory timer.
+;
+; The persistent schedule remains saved until Cancel or until
+; the scheduled attempt begins.
 ; ============================================================
 
 HideScheduler(*)
