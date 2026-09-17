@@ -174,9 +174,24 @@ clickX := 390
 clickY := clientH - 80
 ```
 
-Because these coordinates are relative to the active ChatGPT window, the absolute position of that window on the Windows desktop usually does not matter. A single-monitor setup, multi-monitor setup, or moving ChatGPT from one monitor to another does not by itself require changing the code.
+Because these coordinates are relative to the active ChatGPT window, the absolute position of that window on the Windows desktop usually does not matter.
 
-However, the location of the Codex prompt box **inside the ChatGPT window** can vary with window size, display scaling, portrait orientation, resolution, sidebar width, or future ChatGPT UI changes. A 4K monitor or portrait monitor is not automatically incompatible, but it is worth verifying the prompt click position on your own setup before relying on unattended sending.
+### Tested display behavior
+
+The current build has been tested successfully with:
+
+- ChatGPT/Codex on a 1080p landscape monitor
+- ChatGPT/Codex moved to a separate 4K landscape monitor
+- A four-monitor Windows desktop
+- ChatGPT initially unfocused before the scheduled prompt fires
+
+In those tests, Codex Relay correctly focused the ChatGPT desktop app and pasted the prompt into the Codex input box without changing the click-position code.
+
+This means a single-monitor setup, multi-monitor setup, or moving ChatGPT from one landscape monitor to another does **not** inherently require changing the coordinates.
+
+**Portrait-oriented displays have not yet been tested.** Because a portrait window can substantially change the layout and aspect ratio inside ChatGPT, the current click position may miss the Codex prompt box. If you normally leave ChatGPT on a portrait monitor, test the script with automatic Enter disabled first and use Window Spy to calibrate the click position if necessary.
+
+A different resolution by itself is not automatically a problem, but window dimensions, display scaling, sidebar width, portrait orientation, and future ChatGPT UI changes can all affect where the Codex prompt box appears inside the window.
 
 ### Verify or adjust the click position with Window Spy
 
@@ -238,6 +253,10 @@ The core scheduling workflow has been tested for:
 - Schedule restoration after restarting the script
 - Canceling an armed schedule
 - Safe handling of a missed schedule
+- Multi-monitor use on a four-monitor desktop
+- Moving ChatGPT/Codex from a 1080p landscape monitor to a 4K landscape monitor
+
+Portrait-monitor behavior has not yet been tested.
 
 Windows startup behavior is the remaining system-level test before the first public release. Once that test is complete, this section will be updated for the release build.
 
