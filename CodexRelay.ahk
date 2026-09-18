@@ -9,11 +9,12 @@
 ; Codex Relay schedules ONE prompt at a time for the
 ; ChatGPT desktop application's Codex interface.
 ;
-; This version is a stable visual polish pass (V25):
+; This version is a stable visual polish pass (V26):
 ;   - Dark / futuristic GUI
 ;   - Custom dark selectors (no bright white dropdown fields)
 ;   - Clearer section hierarchy
 ;   - Improved labels and status presentation
+;   - Safe headless startup delivery after Windows reboot/sign-in
 ;   - Same scheduling and delivery behavior
 ; ============================================================
 
@@ -1470,6 +1471,7 @@ PromptTextChanged(*)
 
 ResetPromptComposerAfterDelivery()
 {
+    global SchedulerGui
     global PromptTypeDropdown
     global PromptEdit
     global SendCheckbox
@@ -1477,12 +1479,26 @@ ResetPromptComposerAfterDelivery()
     global SuppressPromptModeSync
     global ShouldSend
 
+    ; Always clear the logical auto-send state after a completed
+    ; delivery, even if the scheduler GUI has never been opened.
+    ShouldSend := false
+
+    ; Important Windows-startup case:
+    ; Codex Relay can launch at sign-in, restore an armed schedule,
+    ; and let that timer fire without the user ever opening the GUI.
+    ; In that situation the visual controls do not exist yet, so
+    ; there is nothing to reset on screen.
+    if !SchedulerGui
+        return
+
+    if !PromptTypeDropdown || !PromptEdit || !SendCheckbox
+        return
+
     SuppressPromptModeSync := true
 
     PromptTypeDropdown.Choose(1)
     PromptEdit.Value := DEFAULT_PROMPT
     SendCheckbox.Value := 0
-    ShouldSend := false
 
     SuppressPromptModeSync := false
 }
@@ -2063,6 +2079,8 @@ MarkScheduleInactive()
 
 RunScheduledPrompt()
 {
+    global SchedulerGui
+
     global IsArmed
     global ShouldSend
 
@@ -2160,17 +2178,25 @@ RunScheduledPrompt()
         }
 
         ; The prompt has left Codex Relay successfully. Reset the
-        ; composer to a clean ready state so the previous custom
-        ; prompt / auto-send choice cannot be mistaken for a new job.
+        ; logical composer state. If the scheduler GUI exists, also
+        ; reset its visible controls.
         ResetPromptComposerAfterDelivery()
-        RefreshActionButtons()
 
-        ; The relay has finished and is no longer armed.
-        ; If the scheduler window is still open, immediately return
-        ; it to the same fresh state the user would see after closing
-        ; and reopening it: default time + NEW SCHEDULE preview.
-        UpdateDefaultTime()
-        UpdatePreview()
+        ; Windows-startup/headless case:
+        ; after reboot/sign-in the saved timer can fire before the
+        ; user ever opens Ctrl+Alt+K. Do not touch GUI-only controls
+        ; unless the scheduler window has actually been built.
+        if SchedulerGui
+        {
+            RefreshActionButtons()
+
+            ; The relay has finished and is no longer armed.
+            ; If the scheduler window exists, immediately return it
+            ; to the same fresh state the user would see after closing
+            ; and reopening it: default time + NEW SCHEDULE preview.
+            UpdateDefaultTime()
+            UpdatePreview()
+        }
     }
     else
     {
@@ -2187,6 +2213,8 @@ RunScheduledPrompt()
 
 HandleScheduledFailure(message)
 {
+    global SchedulerGui
+
     global StatusMessage
     global StatusText
     global FooterText
@@ -2208,12 +2236,17 @@ HandleScheduledFailure(message)
 
     A_IconTip := "Codex Relay — not armed"
 
-    RefreshActionButtons()
+    ; The timer may fail after Windows startup before the GUI has
+    ; ever been opened. Only touch visual controls when they exist.
+    if SchedulerGui
+    {
+        RefreshActionButtons()
 
-    ; A failed scheduled attempt is also no longer armed, so put
-    ; the open scheduler back into a fresh NEW SCHEDULE state.
-    UpdateDefaultTime()
-    UpdatePreview()
+        ; A failed scheduled attempt is also no longer armed, so put
+        ; the open scheduler back into a fresh NEW SCHEDULE state.
+        UpdateDefaultTime()
+        UpdatePreview()
+    }
 
     TrayTip(
         "Codex Relay",
