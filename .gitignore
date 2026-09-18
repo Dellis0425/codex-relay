@@ -1,5 +1,5 @@
 # Local scheduled prompt files
-Scheduled Prompts/*.md
+Scheduled Prompts/
 
 # Current persistent schedule/state
 schedule.ini
