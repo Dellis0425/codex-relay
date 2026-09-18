@@ -38,6 +38,15 @@ A common Codex workflow looks something like this:
 
 The same idea can also be useful for weekly usage resets or for a planned custom prompt several days in the future.
 
+
+### Using files, images, or other attachments
+
+Codex Relay schedules and delivers **text prompts**. It does not attach files, images, or other documents for you.
+
+If your next Codex prompt depends on attachments, the simplest workflow is to add those files or images to the target ChatGPT/Codex conversation **before** arming Codex Relay. Leave the correct conversation open, then schedule the follow-up text prompt normally.
+
+This keeps attachment handling manual and visible while Codex Relay handles only the delayed text delivery. Contributors are welcome to experiment with attachment automation in forks or future pull requests, but it is intentionally outside the current scope of the official utility.
+
 ## What Codex Relay does not do
 
 Codex Relay deliberately keeps automation limited.
@@ -51,6 +60,7 @@ It does **not**:
 - Navigate to a project or conversation for you
 - Open the correct Codex workspace automatically
 - Queue a chain of prompts
+- Attach files, images, or documents automatically
 - Automatically retry a missed schedule
 
 The goal is assisted automation: **you make the decisions; Codex Relay handles the waiting and delivery.**
@@ -107,13 +117,15 @@ The current default is **10 minutes**. You can choose a different buffer or set 
 
 ### Schedule a custom prompt
 
-1. Choose **Custom Prompt** from the prompt dropdown.
+1. Choose **Custom Prompt** from the prompt dropdown, or simply begin editing the built-in prompt text. Editing the built-in prompt automatically switches the mode to **Custom Prompt**.
 2. Type or paste your prompt into the multiline prompt box.
 3. Choose the day, reset time, and safety buffer.
 4. Decide whether Codex Relay should only paste the prompt or also press Enter.
 5. Click **Arm Relay**.
 
-Only one schedule is active at a time. Arming a new schedule replaces the previously armed timer.
+Only one schedule is active at a time. While a relay is armed, **Arm Relay** is replaced by **Cancel**. Cancel the active relay before creating a replacement schedule.
+
+After a prompt is delivered successfully, Codex Relay returns the composer to the built-in **Continue where you left off** prompt and disables **Send automatically** so the next schedule starts from a clean state.
 
 ## Optional backgrounds
 
@@ -202,9 +214,9 @@ Then place a shortcut to `CodexRelay.ahk` there.
 
 ## Canceling a schedule
 
-Open Codex Relay with `Ctrl + Alt + K` and click **Cancel**.
+When a relay is armed, the centered **Arm Relay** button is replaced by **Cancel**.
 
-Canceling clears the armed state so the schedule will not be restored the next time Codex Relay starts.
+Canceling clears the armed state so the schedule will not be restored the next time Codex Relay starts. The prompt text and **Send automatically** choice are intentionally preserved after cancellation so you can correct the schedule or prompt and re-arm it without retyping everything.
 
 ## Display and click-position compatibility
 
@@ -304,6 +316,9 @@ The core workflow has been tested for:
 - Moving ChatGPT/Codex from a 1080p landscape monitor to a 4K landscape monitor
 - Optional local background selection
 - Clean fallback to the standard dark UI with **Background: None**
+- Prompt-mode switching when the built-in prompt is manually edited
+- Clean post-delivery reset to the default prompt and disabled automatic sending
+- Cancellation that preserves the prepared prompt for quick correction and re-arming
 
 Portrait-monitor behavior has not yet been tested.
 
