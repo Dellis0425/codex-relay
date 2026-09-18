@@ -6,6 +6,24 @@ It was built for a simple problem: Codex usage can reset hours or days after wor
 
 Codex Relay is intentionally **not** an autonomous coding agent. It does not decide what Codex should do, inspect your project, or guess whether unfinished work should continue. You choose the prompt, the time, and whether Enter should be pressed.
 
+## Screenshots
+
+### Default interface
+
+![Codex Relay default interface](assets/codex-relay-main.png)
+
+### Custom prompt
+
+![Codex Relay custom prompt](assets/codex-relay-custom-prompt.png)
+
+### Armed relay
+
+![Codex Relay armed relay](assets/codex-relay-armed.png)
+
+### Optional background
+
+![Codex Relay with custom background](assets/codex-relay-background.png)
+
 ## Features
 
 - Schedule one Codex prompt at a time
