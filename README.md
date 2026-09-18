@@ -228,7 +228,9 @@ shell:startup
 
 Then place a shortcut to `CodexRelay.ahk` there.
 
-**Windows startup behavior is still awaiting final release testing.** Test this on your own system before relying on it for an important schedule.
+Windows startup restoration has been tested successfully on Windows 11. With a shortcut to `CodexRelay.ahk` in the Startup folder, Codex Relay launched after sign-in, detected the saved future schedule, displayed a restoration notification, and reopened in the correct **CURRENTLY ARMED** state.
+
+The scheduled prompt itself was not allowed to fire during that specific reboot test, so users should still run an initial test with **Send automatically** disabled before relying on unattended delivery after a restart.
 
 ## Canceling a schedule
 
@@ -328,6 +330,7 @@ The core workflow has been tested for:
 - Automatic Enter / send behavior
 - Custom prompt files
 - Schedule restoration after restarting the script
+- Windows Startup-folder launch and restoration of an armed future schedule after reboot/sign-in
 - Canceling an armed schedule
 - Safe handling of a missed schedule
 - Multi-monitor use on a four-monitor desktop
@@ -340,7 +343,7 @@ The core workflow has been tested for:
 
 Portrait-monitor behavior has not yet been tested.
 
-Windows startup behavior is the remaining system-level test before the first public release. Once that test is complete, this section should be updated for the release build.
+The Windows startup restoration test is now complete. Codex Relay successfully launched from the Windows Startup folder after reboot/sign-in and restored the previously armed future schedule. The remaining pre-release work is packaging and publishing the first public release.
 
 ## Contributing
 
