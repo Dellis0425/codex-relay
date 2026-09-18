@@ -228,9 +228,11 @@ shell:startup
 
 Then place a shortcut to `CodexRelay.ahk` there.
 
-Windows startup restoration has been tested successfully on Windows 11. With a shortcut to `CodexRelay.ahk` in the Startup folder, Codex Relay launched after sign-in, detected the saved future schedule, displayed a restoration notification, and reopened in the correct **CURRENTLY ARMED** state.
+Windows startup behavior has been tested successfully on Windows 11. With a shortcut to `CodexRelay.ahk` in the Startup folder, Codex Relay launched after sign-in, detected and restored the saved future schedule, and kept the relay armed without requiring the scheduler window to be opened first.
 
-The scheduled prompt itself was not allowed to fire during that specific reboot test, so users should still run an initial test with **Send automatically** disabled before relying on unattended delivery after a restart.
+The restored schedule was also allowed to fire after reboot while the scheduler GUI had never been opened. Codex Relay successfully focused the ChatGPT desktop app, typed the saved prompt, respected the disabled **Send automatically** option, showed the completion notification, and returned to a clean **NEW SCHEDULE / NOT ARMED** state the next time the scheduler was opened.
+
+Users should still run an initial positioning test with **Send automatically** disabled before relying on unattended delivery, because the ChatGPT desktop app must already be open on the intended Codex conversation and the click position can vary across layouts or display setups.
 
 ## Canceling a schedule
 
@@ -343,7 +345,7 @@ The core workflow has been tested for:
 
 Portrait-monitor behavior has not yet been tested.
 
-The Windows startup restoration test is now complete. Codex Relay successfully launched from the Windows Startup folder after reboot/sign-in and restored the previously armed future schedule. The remaining pre-release work is packaging and publishing the first public release.
+The Windows startup and post-reboot delivery tests are complete. Codex Relay successfully launched from the Windows Startup folder after reboot/sign-in, restored the previously armed future schedule, and later delivered the saved prompt without the scheduler GUI being opened first. The remaining pre-release work is packaging and publishing the first public release.
 
 ## Contributing
 
